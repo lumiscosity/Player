@@ -39,6 +39,11 @@ public:
 	 */
 	Game_Event(int map_id, const lcf::rpg::Event* event);
 
+	/** @param ev Event referenced */
+	void SetUnderlyingEvent(const lcf::rpg::Event* ev) {
+		event = ev;
+	}
+
 	/** Load from saved game */
 	void SetSaveData(lcf::rpg::SaveMapEvent save);
 
@@ -72,7 +77,7 @@ public:
 	 *
 	 * @return event name.
 	 */
-	StringView GetName() const;
+	std::string_view GetName() const;
 
 	/** Clears waiting_execution flag */
 	void ClearWaitingForegroundExecution();

@@ -28,16 +28,16 @@
 #include <sstream>
 #include <cassert>
 #include <algorithm>
-#include <fmt/core.h>
+#include <fmt/format.h>
 
-constexpr uint32_t end_of_central_directory = 0x06054b50;
-constexpr int32_t end_of_central_directory_size = 22;
+constexpr char end_of_central_directory[] = "\x50\x4b\x05\x06";
+constexpr int32_t end_of_central_directory_size = 18;
 
 constexpr uint32_t central_directory_entry = 0x02014b50;
 constexpr uint32_t local_header = 0x04034b50;
 constexpr uint32_t local_header_size = 30;
 
-static std::string normalize_path(StringView path) {
+static std::string normalize_path(std::string_view path) {
 	if (path == "." || path == "/" || path.empty()) {
 		return "";
 	};
@@ -52,7 +52,7 @@ static std::string normalize_path(StringView path) {
 	return inner_path;
 }
 
-ZipFilesystem::ZipFilesystem(std::string base_path, FilesystemView parent_fs, StringView enc) :
+ZipFilesystem::ZipFilesystem(std::string base_path, FilesystemView parent_fs, std::string_view enc) :
 	Filesystem(base_path, parent_fs) {
 	zip_is = parent_fs.OpenInputStream(GetPath());
 	if (!zip_is) {
@@ -83,8 +83,8 @@ ZipFilesystem::ZipFilesystem(std::string base_path, FilesystemView parent_fs, St
 		int items = 0;
 		while (ReadCentralDirectoryEntry(zip_is, filepath, entry, is_utf8)) {
 			// Only consider Non-ASCII & Non-UTF8 for encoding detection
-			// Skip directories, files already contain the paths
-			if (is_utf8 || filepath.back() == '/' || Utils::StringIsAscii(filepath)) {
+			// Directories are skipped as most of them are usually ASCII and do not help with the detection
+			if (is_utf8 || filepath.back() == '/' || Utils::StringIsAscii(std::get<1>(FileFinder::GetPathAndFilename(filepath)))) {
 				continue;
 			}
 			// Codepath will be only entered by Windows "compressed folder" ZIPs (uses local encoding) and
@@ -212,23 +212,31 @@ bool ZipFilesystem::FindCentralDirectory(std::istream& zipfile, uint32_t& offset
 	bool found = false;
 
 	// seek to the first position where the end_of_central_directory Signature may occur
-	zipfile.seekg(-end_of_central_directory_size, std::ios_base::end);
+	zipfile.seekg(-end_of_central_directory_size - UINT16_MAX, std::ios_base::end);
+	zipfile.clear();
 
 	// The only variable length field in the end of central directory is the comment which
 	// has a maximum length of UINT16_MAX - so if we seek longer, this is no zip file
-	for (size_t i = 0; i < UINT16_MAX && zipfile.good() && !found; i++) {
-		zipfile.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-		Utils::SwapByteOrder(magic); // Take care of big endian systems
-		if (magic == end_of_central_directory) {
+	std::vector<char> items(UINT16_MAX);
+	zipfile.read(items.data(), items.size());
+	zipfile.clear();
+
+	items.resize(zipfile.gcount());
+	if (items.size() < sizeof(magic)) {
+		return false;
+	}
+
+	int i = static_cast<int>(items.size()) - sizeof(magic);
+	// The data is read once and then scanned backwards in memory (faster)
+	for (; i >= 0 && !found; --i) {
+		if (!memcmp(items.data() + i, end_of_central_directory, 4)) {
 			found = true;
-		}
-		else {
-			// if not yet found the magic number step one byte back in the file
-			zipfile.seekg(-(static_cast<int>(sizeof(magic)) + 1), std::ios_base::cur);
+			break;
 		}
 	}
 
 	if (found) {
+		zipfile.seekg(-(static_cast<int>(items.size()) - i - 4), std::ios_base::cur); // Move right after the magic
 		zipfile.seekg(6, std::ios_base::cur); // Jump over multiarchive related fields
 		zipfile.read(reinterpret_cast<char*>(&num_entries), sizeof(uint16_t));
 		Utils::SwapByteOrder(num_entries);
@@ -321,7 +329,7 @@ bool ZipFilesystem::ReadLocalHeader(std::istream& zipfile, StorageMethod& method
 	return true;
 }
 
-bool ZipFilesystem::IsFile(StringView path) const {
+bool ZipFilesystem::IsFile(std::string_view path) const {
 	std::string path_normalized = normalize_path(path);
 	auto entry = Find(path);
 	if (entry) {
@@ -330,7 +338,7 @@ bool ZipFilesystem::IsFile(StringView path) const {
 	return false;
 }
 
-bool ZipFilesystem::IsDirectory(StringView path, bool) const {
+bool ZipFilesystem::IsDirectory(std::string_view path, bool) const {
 	std::string path_normalized = normalize_path(path);
 	auto entry = Find(path);
 	if (entry) {
@@ -339,13 +347,13 @@ bool ZipFilesystem::IsDirectory(StringView path, bool) const {
 	return false;
 }
 
-bool ZipFilesystem::Exists(StringView path) const {
+bool ZipFilesystem::Exists(std::string_view path) const {
 	std::string path_normalized = normalize_path(path);
 	auto entry = Find(path);
 	return entry != nullptr;
 }
 
-int64_t ZipFilesystem::GetFilesize(StringView path) const {
+int64_t ZipFilesystem::GetFilesize(std::string_view path) const {
 	std::string path_normalized = normalize_path(path);
 	auto entry = Find(path);
 	if (entry) {
@@ -354,7 +362,7 @@ int64_t ZipFilesystem::GetFilesize(StringView path) const {
 	return 0;
 }
 
-std::streambuf* ZipFilesystem::CreateInputStreambuffer(StringView path, std::ios_base::openmode) const {
+std::streambuf* ZipFilesystem::CreateInputStreambuffer(std::string_view path, std::ios_base::openmode) const {
 	std::string path_normalized = normalize_path(path);
 	auto central_entry = Find(path);
 	if (central_entry && !central_entry->is_directory) {
@@ -425,7 +433,7 @@ std::streambuf* ZipFilesystem::CreateInputStreambuffer(StringView path, std::ios
 	return nullptr;
 }
 
-bool ZipFilesystem::GetDirectoryContent(StringView path, std::vector<DirectoryTree::Entry>& entries) const {
+bool ZipFilesystem::GetDirectoryContent(std::string_view path, std::vector<DirectoryTree::Entry>& entries) const {
 	if (!IsDirectory(path, false)) {
 		return false;
 	}
@@ -436,7 +444,7 @@ bool ZipFilesystem::GetDirectoryContent(StringView path, std::vector<DirectoryTr
 	}
 
 	auto check = [&](auto& it) {
-		if (StringView(it.first).starts_with(path_normalized) &&
+		if (StartsWith(it.first, path_normalized) &&
 			it.first.substr(path_normalized.size(), it.first.size() - path_normalized.size()).find_last_of('/') == std::string::npos) {
 			// Everything that starts with the path but isn't the path and does contain no slash
 			auto filename = it.first.substr(path_normalized.size(), it.first.size() - path_normalized.size());
@@ -461,7 +469,7 @@ bool ZipFilesystem::GetDirectoryContent(StringView path, std::vector<DirectoryTr
 	return true;
 }
 
-const ZipFilesystem::ZipEntry* ZipFilesystem::Find(StringView what) const {
+const ZipFilesystem::ZipEntry* ZipFilesystem::Find(std::string_view what) const {
 	auto it = std::lower_bound(zip_entries.begin(), zip_entries.end(), what, [](const auto& e, const auto& w) {
 		return e.first < w;
 	});

@@ -198,7 +198,6 @@ FluidSynthDecoder::FluidSynthDecoder() {
 	// Sharing is only not possible when a Midi is played as a SE (unlikely)
 	if (instances > 1) {
 		std::string error_message;
-		int unused = -1;
 		local_synth = create_synth(error_message);
 		if (!local_synth) {
 			// unlikely, the SF was already allocated once
@@ -214,7 +213,12 @@ FluidSynthDecoder::~FluidSynthDecoder() {
 	--instances;
 	assert(instances >= 0);
 
-	if (!use_global_synth) {
+	if (use_global_synth) {
+		// Exhaust the internal synth buffer
+		// Prevents that old samples play when a new Midi song starts (even when there was a longer break between them)
+		std::array<uint8_t, 64 * 4> buffer;
+		fluid_synth_write_s16(global_synth.get(), buffer.size() / 4, buffer.data(), 0, 2, buffer.data(), 1, 2);
+	} else {
 		delete_fluid_synth(local_synth);
 	}
 }
@@ -284,7 +288,7 @@ void FluidSynthDecoder::ResetState() {
 	pending_global_synth.reset();
 }
 
-bool FluidSynthDecoder::ChangeGlobalSoundfont(StringView sf_path, std::string& status_message) {
+bool FluidSynthDecoder::ChangeGlobalSoundfont(std::string_view sf_path, std::string& status_message) {
 	if (!global_synth) {
 		return false;
 	}

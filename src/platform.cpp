@@ -136,7 +136,7 @@ bool Platform::File::MakeDirectory(bool follow_symlinks) const {
 
 	auto components = FileFinder::SplitPath(path);
 	std::string cur_path;
-	if (StringView(path).starts_with("/")) {
+	if (StartsWith(path, "/")) {
 		cur_path += "/";
 	}
 
@@ -156,6 +156,13 @@ bool Platform::File::MakeDirectory(bool follow_symlinks) const {
 				continue;
 			}
 		}
+
+#if defined(__WIIU__)
+		if (cur_path == "fs:/vol" || cur_path == "/vol") {
+			// /vol is part of the path but checking for existance fails
+			continue;
+		}
+#endif
 
 		File cf(cur_path);
 		if (cf.IsDirectory(follow_symlinks)) {
