@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <memory>
 #include "feature.h"
+#include "game_message_terms.h"
 
 //#define EP_DEBUG_BATTLE2K3_STATE_MACHINE
 
@@ -421,7 +422,7 @@ void Scene_Battle_Rpg2k3::UpdateAnimations() {
 		}
 	}
 
-	auto frame_counter = Main_Data::game_system->GetFrameCounter();
+	auto frame_counter = static_cast<uint32_t>(Main_Data::game_system->GetFrameCounter());
 
 	bool ally_set = false;
 	if (status_window->GetActive()
@@ -1853,28 +1854,17 @@ Scene_Battle_Rpg2k3::SceneActionReturn Scene_Battle_Rpg2k3::ProcessSceneActionVi
 		pm.PushLine(ToString(lcf::Data::terms.victory) + Player::escape_symbol + "|");
 		pm.PushPageEnd();
 
-		std::string space = Player::IsRPG2k3E() ? " " : "";
-
-		std::stringstream ss;
 		if (exp > 0) {
-			ss << exp << space << lcf::Data::terms.exp_received;
-			pm.PushLine(ss.str());
+			pm.PushLine(PartyMessage::GetExperienceGainedMessage(exp));
 			pm.PushPageEnd();
 		}
 		if (money > 0) {
-			ss.str("");
-			ss << lcf::Data::terms.gold_recieved_a << " " << money << lcf::Data::terms.gold << lcf::Data::terms.gold_recieved_b;
-			pm.PushLine(ss.str());
+			pm.PushLine(PartyMessage::GetGoldReceivedMessage(money));
 			pm.PushPageEnd();
 		}
 		for (auto& item_id: drops) {
 			const lcf::rpg::Item* item = lcf::ReaderUtil::GetElement(lcf::Data::items, item_id);
-			// No Output::Warning needed here, reported later when the item is added
-			std::string_view item_name = item ? std::string_view(item->name) : std::string_view("??? BAD ITEM ???");
-
-			ss.str("");
-			ss << item_name << space << lcf::Data::terms.item_recieved;
-			pm.PushLine(ss.str());
+			pm.PushLine(PartyMessage::GetItemReceivedMessage(item));
 			pm.PushPageEnd();
 		}
 

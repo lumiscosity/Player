@@ -18,6 +18,7 @@
  // Headers
 #include <regex>
 #include <lcf/encoder.h>
+#include <lcf/reader_util.h>
 #include "async_handler.h"
 #include "game_map.h"
 #include "game_message.h"
@@ -219,7 +220,7 @@ std::string Game_Strings::FromFile(std::string_view filename, int encoding, bool
 	return file_content;
 }
 
-std::string_view Game_Strings::ToFile(Str_Params params, std::string filename, int encoding) {
+bool Game_Strings::ToFile(Str_Params params, std::string filename, int encoding) {
 	std::string str = ToString(Get(params.string_id));
 
 	if (params.extract) {
@@ -242,13 +243,13 @@ std::string_view Game_Strings::ToFile(Str_Params params, std::string filename, i
 	if (!txt_out) {
 		if (!FileFinder::Save().MakeDirectory(txt_dir, false)) {
 			Output::Warning("Maniac String Op ToFile failed. Cannot create directory {}", txt_dir);
-			return {};
+			return false;
 		}
 
 		txt_out = FileFinder::Save().OpenOutputStream(filename);
 		if (!txt_out) {
 			Output::Warning("Maniac String Op ToFile failed. Cannot write to {}", filename);
-			return {};
+			return false;
 		}
 	}
 
@@ -262,7 +263,7 @@ std::string_view Game_Strings::ToFile(Str_Params params, std::string filename, i
 
 	AsyncHandler::SaveFilesystem();
 
-	return str;
+	return true;
 }
 
 std::string_view Game_Strings::PopLine(Str_Params params, int offset, int string_out_id) {
@@ -320,8 +321,10 @@ std::string_view Game_Strings::ExMatch(Str_Params params, std::string expr, int 
 	if (string_out_id > 0) {
 		params.string_id = string_out_id;
 		Set(params, str_result);
+
+		return Get(params.string_id);
 	}
-	return str_result;
+	return {};
 }
 
 const Game_Strings::Strings_t& Game_Strings::RangeOp(Str_Params params, int string_id_1, std::string string, int op, int args[], Game_Variables& variables) {
@@ -508,3 +511,26 @@ std::optional<std::string> Game_Strings::ManiacsCommandInserterHex(char ch, cons
 
 	return ManiacsCommandInserter(ch, iter, end, escape_char);
 };
+
+int Game_Strings::GetSizeWithLimit() {
+	if (_size < 0) {
+		_size = 0;
+		for (auto& [index, value] : _strings) {
+			assert(index > 0);
+			if (index > _size) {
+				_size = index;
+			}
+		}
+	}
+	return std::max(_size, static_cast<int>(lcf::Data::maniac_string_variables.size()));
+}
+
+std::string_view Game_Strings::GetName(int id) const {
+	const auto* strvar = lcf::ReaderUtil::GetElement(lcf::Data::maniac_string_variables, id);
+
+	if (!strvar) {
+		return {};
+	} else {
+		return strvar->name;
+	}
+}

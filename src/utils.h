@@ -22,9 +22,7 @@
 #include <ctime>
 #include <functional>
 #include <string>
-#include <sstream>
 #include <vector>
-#include <random>
 #include "string_view.h"
 #include "span.h"
 
@@ -438,8 +436,9 @@ inline bool Utils::IsControlCharacter(T ch) {
 }
 
 inline bool Utils::StringIsAscii(std::string_view s) {
-	return std::all_of(s.begin(), s.end(), [](char c) {
-		return isascii(static_cast<int>(c));
+	return std::all_of(s.begin(), s.end(), [](signed char c) {
+		// non-ascii is for signed char in range [-128, 0)
+		return c >= 0;
 	});
 }
 
